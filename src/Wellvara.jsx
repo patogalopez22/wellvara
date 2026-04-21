@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import React, { useState, useMemo, useCallback, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).href;
 import {
@@ -880,12 +880,14 @@ function ResultsScreen({ answers, stack, onGoDashboard, onSubscribe }) {
 
       {/* Sections */}
       <div className="px-6 space-y-8 mt-4">
-        {sections.map(({ key, label, sub, Icon, tint }, si) => (
-          grouped[key].length > 0 && (
+        {sections.map((section, si) => {
+          const { key, label, sub, tint } = section;
+          const SectionIcon = section.Icon;
+          return grouped[key].length > 0 && (
             <div key={key} className="animate-fadeUp" style={{ animationDelay: `${200 + si * 80}ms` }}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: `${tint}20`}}>
-                  <Icon size={20} strokeWidth={1.5} style={{color: tint}} />
+                  <SectionIcon size={20} strokeWidth={1.5} style={{color: tint}} />
                 </div>
                 <div>
                   <h3 className="font-display text-[22px] tracking-tight leading-none">{label}</h3>
@@ -899,8 +901,8 @@ function ResultsScreen({ answers, stack, onGoDashboard, onSubscribe }) {
                 {grouped[key].map((s, i) => <SupplementCard key={s.key} supp={s} index={i} />)}
               </div>
             </div>
-          )
-        ))}
+          );
+        })}
       </div>
 
       {/* Disclaimer */}
@@ -1915,6 +1917,7 @@ function AdminView({ providers, onApprove, onReject, onBack }) {
 // BOOKING CONFIRMATION
 // ============================================================
 function BookingConfirmation({ booking, onDone }) {
+  const [bookingId] = useState(() => `WLV-${Math.floor(Math.random() * 9000 + 1000)}`);
   const d = booking.date;
   const dayNames = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
   const monthNames = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
@@ -1937,7 +1940,7 @@ function BookingConfirmation({ booking, onDone }) {
         <div className="w-full rounded-2xl bg-[#1F2A24] text-[#F2ECDF] p-5 mt-7 text-left">
           <div className="flex items-center justify-between pb-3 border-b border-white/10">
             <span className="text-[11px] uppercase tracking-[0.14em] text-[#D7C9A7]/70">Cita</span>
-            <span className="text-[11px] text-[#D7C9A7]/70">WLV-{Math.floor(Math.random() * 9000 + 1000)}</span>
+            <span className="text-[11px] text-[#D7C9A7]/70">{bookingId}</span>
           </div>
           <div className="pt-4 space-y-3">
             <div>
@@ -2092,8 +2095,19 @@ function ProgressView({ answers, stack, doseLogs }) {
 // PROFILE / PRIVACY
 // ============================================================
 function ProfileView({ answers, onNav }) {
+  const [toast, setToast] = useState(null);
+  const showToast = (label) => {
+    setToast(label);
+    setTimeout(() => setToast(null), 2000);
+  };
+
   return (
     <div className="min-h-screen pb-24 px-6 pt-10">
+      {toast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#1F2A24] text-[#F2ECDF] text-[13px] px-5 py-3 rounded-2xl shadow-lg animate-fadeUp">
+          {toast} · próximamente
+        </div>
+      )}
       <div className="flex items-center gap-4 mb-8">
         <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#3E5A4A] to-[#1F2A24] text-[#D7C9A7] flex items-center justify-center font-display text-[24px] font-semibold">
           {answers.name ? answers.name[0].toUpperCase() : "V"}
@@ -2111,7 +2125,7 @@ function ProfileView({ answers, onNav }) {
           { icon: FileText, label: "Mis estudios", sub: "Documentos subidos" },
           { icon: CreditCard, label: "Pagos", sub: "Métodos de pago y facturación" },
         ].map((item, i) => (
-          <button key={i} className="w-full rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-4 flex items-center gap-3 text-left">
+          <button key={i} onClick={() => showToast(item.label)} className="w-full rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-4 flex items-center gap-3 text-left">
             <div className="w-10 h-10 rounded-xl bg-white border border-[#E8DEC3] flex items-center justify-center flex-shrink-0">
               <item.icon size={17} className="text-[#3E5A4A]" strokeWidth={1.6} />
             </div>
@@ -2181,7 +2195,7 @@ function ProfileView({ answers, onNav }) {
 // ============================================================
 function SubscribeScreen({ stack, onBack, onDone }) {
   const [plan, setPlan] = useState("mensual");
-  const base = stack.reduce((acc, s) => acc + 180, 0);
+  const base = stack.reduce((acc) => acc + 180, 0);
   const mensualPrice = base;
   const trimestralPrice = Math.round(base * 0.85);
   const price = plan === "mensual" ? mensualPrice : trimestralPrice;
@@ -3549,6 +3563,15 @@ const SEED_COMMUNITIES = [
   { id: 1, name: "Wellvara México", description: "La comunidad oficial de Wellvara en México. Comparte tu progreso, rutinas y hábitos.", type: "public", category: "wellness", memberCount: 0, emoji: "", coverColor: "#3E5A4A", joined: false, posts: [], createdAt: "2026-04-20" },
 ];
 
+function timeAgo(iso) {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "ahora";
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
 function CommunityDetail({ community, workouts, doseLogs, userName, onBack, onPost, onLike, onJoin, onLeave }) {
   const [subtab, setSubtab] = useState("feed");
   const [postText, setPostText] = useState("");
@@ -3578,15 +3601,6 @@ function CommunityDetail({ community, workouts, doseLogs, userName, onBack, onPo
 
   const displayName = userName || "Tú";
   const initial = displayName[0]?.toUpperCase() || "?";
-
-  const timeAgo = (iso) => {
-    const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-    if (mins < 1) return "ahora";
-    if (mins < 60) return `${mins}m`;
-    const h = Math.floor(mins / 60);
-    if (h < 24) return `${h}h`;
-    return `${Math.floor(h / 24)}d`;
-  };
 
   return (
     <div className="min-h-screen pb-28">
