@@ -4053,12 +4053,25 @@ function AuthScreen({ onAuth }) {
       <div className="w-14 h-14 rounded-3xl bg-gradient-to-br from-[#3E5A4A] to-[#1F2A24] flex items-center justify-center mb-6 shadow-lg">
         <Leaf size={26} className="text-[#D7C9A7]" strokeWidth={1.5} />
       </div>
-      <h1 className="font-display text-[32px] tracking-tight text-[#1F2A24] text-center leading-tight">
-        {mode === "login" ? "Bienvenido de vuelta" : "Crear cuenta"}
+      <h1 className="font-display text-[28px] tracking-tight text-[#1F2A24] text-center leading-tight mb-6">
+        Well<span className="italic">vara</span>
       </h1>
-      <p className="text-[13px] text-[#6B6657] mt-2 text-center mb-8">
-        {mode === "login" ? "Ingresa a tu cuenta Wellvara." : "Crea tu cuenta para guardar tu progreso."}
-      </p>
+
+      {/* Tabs */}
+      <div className="w-full max-w-[320px] flex rounded-2xl bg-[#EAE4D6] p-1 mb-6">
+        <button
+          onClick={() => { setMode("login"); setError(""); }}
+          className={`flex-1 py-2.5 rounded-xl text-[14px] font-semibold transition-all ${mode === "login" ? "bg-white text-[#1F2A24] shadow-sm" : "text-[#8B8470]"}`}
+        >
+          Iniciar sesión
+        </button>
+        <button
+          onClick={() => { setMode("signup"); setError(""); }}
+          className={`flex-1 py-2.5 rounded-xl text-[14px] font-semibold transition-all ${mode === "signup" ? "bg-white text-[#1F2A24] shadow-sm" : "text-[#8B8470]"}`}
+        >
+          Registrarse
+        </button>
+      </div>
 
       <div className="w-full max-w-[320px] space-y-3">
         <input
@@ -4085,14 +4098,6 @@ function AuthScreen({ onAuth }) {
           {loading ? "..." : mode === "login" ? "Entrar" : "Crear cuenta"}
         </button>
       </div>
-
-      <p className="mt-6 text-[12px] text-[#8B8470] text-center">
-        {mode === "login" ? "¿No tienes cuenta?" : "¿Ya tienes cuenta?"}{" "}
-        <button onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }}
-          className="underline text-[#3E5A4A]">
-          {mode === "login" ? "Regístrate" : "Inicia sesión"}
-        </button>
-      </p>
     </div>
   );
 }
