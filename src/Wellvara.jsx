@@ -1,4 +1,12 @@
-import React, { useState, useMemo, useCallback, useRef } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { auth, db } from "./firebase";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut,
+} from "firebase/auth";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).href;
 import {
@@ -999,12 +1007,12 @@ function SupplementCard({ supp, index }) {
 // ============================================================
 // SCREENS: DASHBOARD
 // ============================================================
-function Dashboard({ answers, stack, doseLogs, logDose, providers, workouts, wearables, logWorkout, toggleWearable, onNav, tab, setTab }) {
+function Dashboard({ answers, stack, doseLogs, logDose, providers, workouts, wearables, logWorkout, toggleWearable, onNav, tab, setTab, onLogout }) {
   if (tab === "telehealth") return <TelehealthList onNav={onNav} providers={providers} />;
   if (tab === "progress") return <ProgressView answers={answers} stack={stack} doseLogs={doseLogs} />;
   if (tab === "workouts") return <WorkoutsView workouts={workouts} wearables={wearables} logWorkout={logWorkout} toggleWearable={toggleWearable} />;
   if (tab === "communities") return <CommunitiesView workouts={workouts} doseLogs={doseLogs} userName={answers.name} />;
-  if (tab === "profile") return <ProfileView answers={answers} onNav={onNav} />;
+  if (tab === "profile") return <ProfileView answers={answers} onNav={onNav} onLogout={onLogout} />;
 
   // Home tab
   const firstName = answers.name ? answers.name.split(" ")[0] : "";
@@ -2094,7 +2102,7 @@ function ProgressView({ answers, stack, doseLogs }) {
 // ============================================================
 // PROFILE / PRIVACY
 // ============================================================
-function ProfileView({ answers, onNav }) {
+function ProfileView({ answers, onNav, onLogout }) {
   const [toast, setToast] = useState(null);
   const showToast = (label) => {
     setToast(label);
@@ -2181,6 +2189,12 @@ function ProfileView({ answers, onNav }) {
       </div>
 
       <div className="text-center mt-10">
+        <button
+          onClick={onLogout}
+          className="text-[13px] text-[#C0633F] underline mb-4"
+        >
+          Cerrar sesión
+        </button>
         <div className="font-display text-[16px] tracking-tight text-[#8B8470]">
           Well<span className="italic">vara</span>
         </div>
@@ -3998,6 +4012,92 @@ function BottomNav({ tab, setTab }) {
 }
 
 // ============================================================
+// AUTH SCREEN
+// ============================================================
+function AuthScreen({ onAuth }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      if (mode === "signup") {
+        const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        await setDoc(doc(db, "users", cred.user.uid), { email: email.trim(), createdAt: new Date().toISOString() }, { merge: true });
+        onAuth(cred.user);
+      } else {
+        const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+        onAuth(cred.user);
+      }
+    } catch (e) {
+      const msgs = {
+        "auth/email-already-in-use": "Este correo ya está registrado.",
+        "auth/invalid-email": "Correo inválido.",
+        "auth/weak-password": "Contraseña muy corta (mínimo 6 caracteres).",
+        "auth/user-not-found": "No encontramos esa cuenta.",
+        "auth/wrong-password": "Contraseña incorrecta.",
+        "auth/invalid-credential": "Correo o contraseña incorrectos.",
+      };
+      setError(msgs[e.code] || "Algo salió mal. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F5F0E8] flex flex-col items-center justify-center px-8">
+      <div className="w-14 h-14 rounded-3xl bg-gradient-to-br from-[#3E5A4A] to-[#1F2A24] flex items-center justify-center mb-6 shadow-lg">
+        <Leaf size={26} className="text-[#D7C9A7]" strokeWidth={1.5} />
+      </div>
+      <h1 className="font-display text-[32px] tracking-tight text-[#1F2A24] text-center leading-tight">
+        {mode === "login" ? "Bienvenido de vuelta" : "Crear cuenta"}
+      </h1>
+      <p className="text-[13px] text-[#6B6657] mt-2 text-center mb-8">
+        {mode === "login" ? "Ingresa a tu cuenta Wellvara." : "Crea tu cuenta para guardar tu progreso."}
+      </p>
+
+      <div className="w-full max-w-[320px] space-y-3">
+        <input
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="Correo electrónico"
+          className="w-full border border-[#D8CEB8] rounded-2xl px-4 py-3.5 text-[15px] bg-white outline-none focus:border-[#3E5A4A] transition-colors"
+        />
+        <input
+          type="password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && submit()}
+          placeholder="Contraseña"
+          className="w-full border border-[#D8CEB8] rounded-2xl px-4 py-3.5 text-[15px] bg-white outline-none focus:border-[#3E5A4A] transition-colors"
+        />
+        {error && <p className="text-[12px] text-[#E57373] text-center">{error}</p>}
+        <button
+          onClick={submit}
+          disabled={loading || !email || !password}
+          className="btn-primary w-full text-[#F2ECDF] font-semibold py-3.5 rounded-2xl text-[15px] disabled:opacity-50"
+        >
+          {loading ? "..." : mode === "login" ? "Entrar" : "Crear cuenta"}
+        </button>
+      </div>
+
+      <p className="mt-6 text-[12px] text-[#8B8470] text-center">
+        {mode === "login" ? "¿No tienes cuenta?" : "¿Ya tienes cuenta?"}{" "}
+        <button onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }}
+          className="underline text-[#3E5A4A]">
+          {mode === "login" ? "Regístrate" : "Inicia sesión"}
+        </button>
+      </p>
+    </div>
+  );
+}
+
+// ============================================================
 // BETA GATE
 // ============================================================
 const BETA_PASSWORD = "wellvara2026"; // change this to whatever you want
@@ -4069,25 +4169,47 @@ export default function Wellvara() {
   const [unlocked, setUnlocked] = useState(() =>
     localStorage.getItem("wv_beta_unlocked") === "true"
   );
+  const [user, setUser] = useState(undefined);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => setUser(u ?? null));
+    return unsub;
+  }, []);
 
   if (!unlocked) return <BetaGate onUnlock={() => setUnlocked(true)} />;
-  return <WellvaraApp />;
+  if (user === undefined) return null;
+  if (!user) return <AuthScreen onAuth={setUser} />;
+  return <WellvaraApp user={user} />;
 }
 
-function WellvaraApp() {
-
+function WellvaraApp({ user }) {
   const [screen, setScreen] = useState("welcome");
   const [answers, setAnswers] = useState({});
   const [tab, setTab] = useState("home");
   const [currentDoctor, setCurrentDoctor] = useState(null);
   const [currentBooking, setCurrentBooking] = useState(null);
-  const [doseLogs, setDoseLogs] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("wv_logs") || "[]"); } catch { return []; }
-  });
-  const [providers, setProviders] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("wv_providers") || "[]"); } catch { return []; }
-  });
+  const [doseLogs, setDoseLogs] = useState([]);
+  const [providers, setProviders] = useState([]);
   const [currentProvider, setCurrentProvider] = useState(null);
+
+  useEffect(() => {
+    if (!user) return;
+    getDoc(doc(db, "users", user.uid)).then(snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.answers) { setAnswers(data.answers); setScreen("dashboard"); }
+        if (data.doseLogs) setDoseLogs(data.doseLogs);
+        if (data.providers) setProviders(data.providers);
+        if (data.workouts) setWorkouts(data.workouts);
+        if (data.wearables) setWearables(data.wearables);
+      }
+    });
+  }, [user]);
+
+  const saveToFirestore = useCallback((updates) => {
+    if (!user) return;
+    setDoc(doc(db, "users", user.uid), updates, { merge: true });
+  }, [user]);
 
   const stack = useMemo(() => generateStack(answers), [answers]);
 
@@ -4096,10 +4218,10 @@ function WellvaraApp() {
     setDoseLogs(prev => {
       if (prev.some(l => l.date === entry.date && l.timeOfDay === entry.timeOfDay)) return prev;
       const next = [...prev, entry];
-      localStorage.setItem("wv_logs", JSON.stringify(next));
+      saveToFirestore({ doseLogs: next });
       return next;
     });
-  }, []);
+  }, [saveToFirestore]);
 
   const registerProvider = useCallback((formData) => {
     const id = Date.now();
@@ -4117,59 +4239,55 @@ function WellvaraApp() {
     };
     setProviders(prev => {
       const next = [...prev, provider];
-      localStorage.setItem("wv_providers", JSON.stringify(next));
+      saveToFirestore({ providers: next });
       return next;
     });
     setCurrentProvider(provider);
-  }, []);
+  }, [saveToFirestore]);
 
   const approveProvider = useCallback((id) => {
     setProviders(prev => {
       const next = prev.map(p => p.id === id ? { ...p, status: "approved" } : p);
-      localStorage.setItem("wv_providers", JSON.stringify(next));
+      saveToFirestore({ providers: next });
       return next;
     });
-  }, []);
+  }, [saveToFirestore]);
 
   const rejectProvider = useCallback((id) => {
     setProviders(prev => {
       const next = prev.map(p => p.id === id ? { ...p, status: "rejected" } : p);
-      localStorage.setItem("wv_providers", JSON.stringify(next));
+      saveToFirestore({ providers: next });
       return next;
     });
-  }, []);
+  }, [saveToFirestore]);
 
   const updateProviderAvailability = useCallback((providerId, availability) => {
     setProviders(prev => {
       const next = prev.map(p => p.id === providerId ? { ...p, availability } : p);
-      localStorage.setItem("wv_providers", JSON.stringify(next));
+      saveToFirestore({ providers: next });
       return next;
     });
-  }, []);
+  }, [saveToFirestore]);
 
-  const [workouts, setWorkouts] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("wv_workouts") || "[]"); } catch { return []; }
-  });
-  const [wearables, setWearables] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("wv_wearables") || "{}"); } catch { return {}; }
-  });
+  const [workouts, setWorkouts] = useState([]);
+  const [wearables, setWearables] = useState({});
 
   const logWorkout = useCallback((w) => {
     const entry = { ...w, id: Date.now(), date: new Date().toISOString().slice(0, 10), source: "manual" };
     setWorkouts(prev => {
       const next = [entry, ...prev];
-      localStorage.setItem("wv_workouts", JSON.stringify(next));
+      saveToFirestore({ workouts: next });
       return next;
     });
-  }, []);
+  }, [saveToFirestore]);
 
   const toggleWearable = useCallback((key) => {
     setWearables(prev => {
       const next = { ...prev, [key]: !prev[key] };
-      localStorage.setItem("wv_wearables", JSON.stringify(next));
+      saveToFirestore({ wearables: next });
       return next;
     });
-  }, []);
+  }, [saveToFirestore]);
 
   const handleNav = (target, payload) => {
     if (target === "doctor") {
@@ -4209,7 +4327,7 @@ function WellvaraApp() {
         {screen === "questionnaire" && (
           <Questionnaire
             onExit={() => setScreen("welcome")}
-            onComplete={(a) => { setAnswers(a); setScreen("results"); }}
+            onComplete={(a) => { setAnswers(a); saveToFirestore({ answers: a }); setScreen("results"); }}
           />
         )}
 
@@ -4237,6 +4355,7 @@ function WellvaraApp() {
               onNav={handleNav}
               tab={tab}
               setTab={setTab}
+              onLogout={() => signOut(auth)}
             />
             {showBottomNav && <BottomNav tab={tab} setTab={setTab} />}
           </>
