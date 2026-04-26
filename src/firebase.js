@@ -3,13 +3,13 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCe-Jc8x39TpQB4IJm0kCYPwBtMw2LhZEg",
-  authDomain: "wellvara-27c7c.firebaseapp.com",
-  projectId: "wellvara-27c7c",
-  storageBucket: "wellvara-27c7c.firebasestorage.app",
-  messagingSenderId: "64183657465",
-  appId: "1:64183657465:web:1cc2cb4e45c0efffbad328",
-  measurementId: "G-TJMW3P1S65"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);
