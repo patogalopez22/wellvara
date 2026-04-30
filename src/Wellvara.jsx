@@ -1007,10 +1007,11 @@ function SupplementCard({ supp, index }) {
 // ============================================================
 // SCREENS: DASHBOARD
 // ============================================================
-function Dashboard({ answers, stack, doseLogs, logDose, providers, workouts, wearables, logWorkout, toggleWearable, onNav, tab, setTab, onLogout }) {
+function Dashboard({ answers, stack, doseLogs, logDose, providers, workouts, wearables, logWorkout, toggleWearable, onNav, tab, setTab, onLogout, journals, journalQuestions, logJournal, saveJournalQuestions }) {
   if (tab === "telehealth") return <TelehealthList onNav={onNav} providers={providers} />;
   if (tab === "progress") return <ProgressView answers={answers} stack={stack} doseLogs={doseLogs} />;
   if (tab === "workouts") return <WorkoutsView workouts={workouts} wearables={wearables} logWorkout={logWorkout} toggleWearable={toggleWearable} />;
+  if (tab === "journal") return <JournalView journals={journals} journalQuestions={journalQuestions} logJournal={logJournal} saveJournalQuestions={saveJournalQuestions} />;
   if (tab === "communities") return <CommunitiesView workouts={workouts} doseLogs={doseLogs} userName={answers.name} />;
   if (tab === "profile") return <ProfileView answers={answers} onNav={onNav} onLogout={onLogout} />;
 
@@ -2427,7 +2428,7 @@ const WEARABLES = [
 function WorkoutsView({ workouts, wearables, logWorkout, toggleWearable }) {
   const [subtab, setSubtab] = useState("today");
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ type: "strength", duration: "", intensity: "medium", notes: "" });
+  const [form, setForm] = useState({ type: "strength", duration: "", intensity: "medium", notes: "", date: new Date().toISOString().slice(0, 10) });
 
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
@@ -2562,6 +2563,17 @@ function WorkoutsView({ workouts, wearables, logWorkout, toggleWearable }) {
                 <button onClick={() => setShowForm(false)} className="text-[#8B8470] text-[12px]">Cancelar</button>
               </div>
 
+              {/* Date */}
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B8470] mb-2">Fecha</div>
+                <input type="date" max={todayStr}
+                  className="w-full h-11 rounded-xl border border-[#E8DEC3] bg-white px-4 text-[14px] outline-none focus:border-[#C0633F]"
+                  value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} />
+                {form.date !== todayStr && (
+                  <div className="text-[11px] text-[#C0633F] mt-1">Registrando para día anterior</div>
+                )}
+              </div>
+
               {/* Type grid */}
               <div>
                 <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B8470] mb-2">Tipo</div>
@@ -2618,8 +2630,8 @@ function WorkoutsView({ workouts, wearables, logWorkout, toggleWearable }) {
                 disabled={!form.duration}
                 onClick={() => {
                   if (!form.duration) return;
-                  logWorkout({ type: form.type, duration: Number(form.duration), intensity: form.intensity, notes: form.notes });
-                  setForm({ type: "strength", duration: "", intensity: "medium", notes: "" });
+                  logWorkout({ type: form.type, duration: Number(form.duration), intensity: form.intensity, notes: form.notes, date: form.date });
+                  setForm({ type: "strength", duration: "", intensity: "medium", notes: "", date: new Date().toISOString().slice(0, 10) });
                   setShowForm(false);
                 }}
                 className={`w-full h-12 rounded-xl font-semibold text-[14px] transition ${
@@ -3979,6 +3991,367 @@ function CommunitiesView({ workouts, doseLogs, userName }) {
 }
 
 // ============================================================
+// JOURNAL
+// ============================================================
+const DEFAULT_JOURNAL_QUESTIONS = [
+  { id: "feel",             label: "¿Cómo te sientes hoy?",         type: "scale",     Icon: Heart },
+  { id: "sleep_quality",    label: "¿Cómo dormiste?",               type: "scale",     Icon: Moon },
+  { id: "sleep_hours",      label: "Horas de sueño",                type: "number",    Icon: Clock, placeholder: "7", min: 0, max: 24 },
+  { id: "alcohol_drugs",    label: "¿Alcohol o drogas ayer?",       type: "yesno",     Icon: Wind },
+  { id: "sauna",            label: "¿Sauna hoy?",                   type: "yesno",     Icon: Flame },
+  { id: "cold_plunge",      label: "¿Baño frío hoy?",               type: "yesno",     Icon: Droplets },
+  { id: "breathwork",       label: "¿Trabajo de respiración?",      type: "yesno",     Icon: Wind },
+  { id: "supplements",      label: "¿Suplementos tomados?",         type: "yesno",     Icon: PillIcon },
+  { id: "workout_intensity",label: "Intensidad de entrenamiento",   type: "intensity", Icon: Dumbbell },
+];
+
+function JournalView({ journals, journalQuestions, logJournal, saveJournalQuestions }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [subtab, setSubtab] = useState("log");
+  const [date, setDate] = useState(todayStr);
+  const [answers, setAnswers] = useState({});
+  const [saved, setSaved] = useState(false);
+  const [showAddQ, setShowAddQ] = useState(false);
+  const [newQ, setNewQ] = useState({ label: "", type: "yesno" });
+
+  const allQuestions = [...DEFAULT_JOURNAL_QUESTIONS, ...journalQuestions];
+
+  useEffect(() => {
+    const existing = journals.find(j => j.date === date);
+    setAnswers(existing ? { ...existing.entries } : {});
+    setSaved(false);
+  }, [date, journals]);
+
+  const setAnswer = (id, val) => {
+    setAnswers(prev => ({ ...prev, [id]: val }));
+    setSaved(false);
+  };
+
+  const handleSave = () => {
+    if (Object.keys(answers).length === 0) return;
+    logJournal({ date, entries: answers });
+    setSaved(true);
+  };
+
+  const addCustomQuestion = () => {
+    if (!newQ.label.trim()) return;
+    const q = { id: `custom_${Date.now()}`, label: newQ.label.trim(), type: newQ.type, custom: true };
+    saveJournalQuestions([...journalQuestions, q]);
+    setNewQ({ label: "", type: "yesno" });
+    setShowAddQ(false);
+  };
+
+  const deleteCustomQuestion = (id) => {
+    saveJournalQuestions(journalQuestions.filter(q => q.id !== id));
+  };
+
+  const TYPE_LABELS = { scale: "Escala", yesno: "Sí/No", intensity: "Intensidad", number: "Número", text: "Texto" };
+
+  const renderQuestion = (q) => {
+    const val = answers[q.id];
+
+    if (q.type === "scale") {
+      return (
+        <div>
+          <div className="flex gap-1">
+            {[1,2,3,4,5,6,7,8,9,10].map(n => (
+              <button key={n} onClick={() => setAnswer(q.id, n)}
+                className={`flex-1 aspect-square rounded-lg text-[11px] font-semibold border transition ${
+                  val === n ? "bg-[#3E5A4A] text-white border-[#3E5A4A]" : "bg-white border-[#E8DEC3] text-[#3F3A2E]"
+                }`}>
+                {n}
+              </button>
+            ))}
+          </div>
+          {val != null && (
+            <div className="text-[11px] text-[#8B8470] mt-1.5">
+              {val <= 3 ? "Bajo" : val <= 6 ? "Regular" : val <= 8 ? "Bien" : "Excelente"}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (q.type === "yesno") {
+      return (
+        <div className="flex gap-2">
+          {[{ v: true, label: "Sí" }, { v: false, label: "No" }].map(opt => (
+            <button key={String(opt.v)} onClick={() => setAnswer(q.id, opt.v)}
+              className={`flex-1 py-2.5 rounded-xl border text-[13px] font-medium transition ${
+                val === opt.v ? "bg-[#1F2A24] text-[#F2ECDF] border-[#1F2A24]" : "bg-white border-[#E8DEC3] text-[#3F3A2E]"
+              }`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    if (q.type === "intensity") {
+      return (
+        <div className="flex gap-1.5">
+          {[{ v: "none", label: "Ninguno" }, { v: "low", label: "Bajo" }, { v: "medium", label: "Medio" }, { v: "high", label: "Alto" }].map(opt => (
+            <button key={opt.v} onClick={() => setAnswer(q.id, opt.v)}
+              className={`flex-1 py-2 rounded-xl border text-[11px] font-medium transition ${
+                val === opt.v ? "bg-[#C0633F] text-white border-[#C0633F]" : "bg-white border-[#E8DEC3] text-[#3F3A2E]"
+              }`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    if (q.type === "number") {
+      return (
+        <input type="number" min={q.min ?? 0} max={q.max ?? 999}
+          className="w-full h-11 rounded-xl border border-[#E8DEC3] bg-white px-4 text-[14px] outline-none focus:border-[#3E5A4A]"
+          value={val ?? ""} onChange={e => setAnswer(q.id, Number(e.target.value))}
+          placeholder={q.placeholder || ""} />
+      );
+    }
+
+    if (q.type === "text") {
+      return (
+        <input type="text"
+          className="w-full h-11 rounded-xl border border-[#E8DEC3] bg-white px-4 text-[14px] outline-none focus:border-[#3E5A4A]"
+          value={val ?? ""} onChange={e => setAnswer(q.id, e.target.value)}
+          placeholder={q.placeholder || "Tu respuesta"} />
+      );
+    }
+
+    return null;
+  };
+
+  const subtabs = [
+    { v: "log",       label: "Registrar" },
+    { v: "history",   label: "Historial" },
+    { v: "questions", label: "Preguntas" },
+  ];
+
+  return (
+    <div className="min-h-screen pb-28">
+      <div className="px-6 pt-10 pb-4">
+        <Pill tone="sage">Diario</Pill>
+        <h1 className="font-display text-[30px] tracking-tight leading-tight mt-3">
+          Tu <em className="italic text-[#3E5A4A]">bienestar</em> diario
+        </h1>
+      </div>
+
+      <div className="px-6 flex gap-2 mb-5">
+        {subtabs.map(t => (
+          <button key={t.v} onClick={() => setSubtab(t.v)}
+            className={`px-4 py-2 rounded-full text-[12.5px] font-medium border transition ${
+              subtab === t.v ? "bg-[#1F2A24] text-[#F2ECDF] border-[#1F2A24]" : "bg-[#FBF7EC] text-[#3F3A2E] border-[#E8DEC3]"
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── REGISTRAR ─────────────────────── */}
+      {subtab === "log" && (
+        <div className="px-6 space-y-4">
+          <div className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-4">
+            <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B8470] mb-2">Fecha</div>
+            <input type="date" max={todayStr}
+              className="w-full h-11 rounded-xl border border-[#E8DEC3] bg-white px-4 text-[14px] outline-none focus:border-[#3E5A4A]"
+              value={date} onChange={e => setDate(e.target.value)} />
+            {date !== todayStr && (
+              <div className="text-[11px] text-[#C0633F] mt-1.5">Registrando para fecha anterior</div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {allQuestions.map(q => {
+              const Icon = q.Icon || CircleDot;
+              return (
+                <div key={q.id} className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-4 space-y-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-[#E8DEC3] flex items-center justify-center flex-shrink-0">
+                      <Icon size={14} strokeWidth={1.8} className="text-[#3E5A4A]" />
+                    </div>
+                    <div className="font-medium text-[13.5px] text-[#1F2A24] leading-tight">{q.label}</div>
+                  </div>
+                  {renderQuestion(q)}
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={handleSave}
+            disabled={Object.keys(answers).length === 0}
+            className={`w-full h-12 rounded-xl font-semibold text-[14px] transition ${
+              Object.keys(answers).length > 0
+                ? saved ? "bg-[#3E5A4A] text-white" : "bg-[#1F2A24] text-[#F2ECDF]"
+                : "bg-[#E8E0CF] text-[#B0A890]"
+            }`}>
+            {saved ? "Guardado" : "Guardar entrada"}
+          </button>
+        </div>
+      )}
+
+      {/* ── HISTORIAL ─────────────────────── */}
+      {subtab === "history" && (
+        <div className="px-6 space-y-4">
+          {journals.length === 0 ? (
+            <div className="text-center py-10 text-[13px] text-[#8B8470]">
+              Aún no tienes entradas en tu diario.
+            </div>
+          ) : (
+            [...journals]
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map(j => {
+                const d = new Date(j.date + "T12:00:00");
+                const dayNames = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+                const monthNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+                const label = j.date === todayStr ? "Hoy" : `${dayNames[d.getDay()]} ${d.getDate()} ${monthNames[d.getMonth()]}`;
+                const answered = allQuestions.filter(q => j.entries?.[q.id] !== undefined);
+                return (
+                  <div key={j.id || j.date} className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="font-display text-[15px] tracking-tight">{label}</div>
+                      <div className="text-[11px] text-[#8B8470]">{answered.length} respuestas</div>
+                    </div>
+                    <div className="space-y-2">
+                      {answered.map(q => {
+                        const val = j.entries[q.id];
+                        let display = "";
+                        if (q.type === "yesno") display = val ? "Sí" : "No";
+                        else if (q.type === "scale") display = `${val}/10`;
+                        else if (q.type === "intensity") display = { none: "Ninguno", low: "Bajo", medium: "Medio", high: "Alto" }[val] ?? String(val);
+                        else display = String(val);
+                        const Icon = q.Icon || CircleDot;
+                        return (
+                          <div key={q.id} className="flex items-center justify-between text-[12.5px]">
+                            <div className="flex items-center gap-2 text-[#6B6657]">
+                              <Icon size={12} strokeWidth={1.8} />
+                              <span>{q.label}</span>
+                            </div>
+                            <div className="font-semibold text-[#1F2A24]">{display}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button
+                      onClick={() => { setDate(j.date); setSubtab("log"); }}
+                      className="mt-3 text-[11px] text-[#3E5A4A] font-medium">
+                      Editar entrada
+                    </button>
+                  </div>
+                );
+              })
+          )}
+        </div>
+      )}
+
+      {/* ── PREGUNTAS ─────────────────────── */}
+      {subtab === "questions" && (
+        <div className="px-6 space-y-4">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B8470] mb-2">Preguntas base</div>
+            <div className="space-y-2">
+              {DEFAULT_JOURNAL_QUESTIONS.map(q => {
+                const Icon = q.Icon;
+                return (
+                  <div key={q.id} className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-3 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-[#E8DEC3] flex items-center justify-center flex-shrink-0">
+                      <Icon size={14} strokeWidth={1.8} className="text-[#3E5A4A]" />
+                    </div>
+                    <div className="flex-1 text-[13px] text-[#1F2A24]">{q.label}</div>
+                    <div className="text-[10px] text-[#8B8470] bg-[#E8DEC3] px-2 py-0.5 rounded-full whitespace-nowrap">
+                      {TYPE_LABELS[q.type]}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {journalQuestions.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B8470] mb-2">Mis preguntas</div>
+              <div className="space-y-2">
+                {journalQuestions.map(q => (
+                  <div key={q.id} className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-3 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-[#E8DEC3] flex items-center justify-center flex-shrink-0">
+                      <CircleDot size={14} strokeWidth={1.8} className="text-[#C0633F]" />
+                    </div>
+                    <div className="flex-1 text-[13px] text-[#1F2A24]">{q.label}</div>
+                    <div className="text-[10px] text-[#8B8470] bg-[#E8DEC3] px-2 py-0.5 rounded-full whitespace-nowrap mr-2">
+                      {TYPE_LABELS[q.type]}
+                    </div>
+                    <button onClick={() => deleteCustomQuestion(q.id)} className="text-[#C0633F] flex-shrink-0">
+                      <Trash2 size={15} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!showAddQ ? (
+            <button onClick={() => setShowAddQ(true)}
+              className="w-full h-12 rounded-2xl border-2 border-dashed border-[#C8BAA0] text-[#8B8470] text-[13px] font-medium flex items-center justify-center gap-2">
+              <Plus size={16} strokeWidth={2} />
+              Agregar pregunta personalizada
+            </button>
+          ) : (
+            <div className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="font-display text-[16px] tracking-tight">Nueva pregunta</div>
+                <button onClick={() => { setShowAddQ(false); setNewQ({ label: "", type: "yesno" }); }} className="text-[#8B8470] text-[12px]">Cancelar</button>
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B8470] mb-2">Pregunta</div>
+                <input type="text"
+                  className="w-full h-11 rounded-xl border border-[#E8DEC3] bg-white px-4 text-[14px] outline-none focus:border-[#3E5A4A]"
+                  value={newQ.label} onChange={e => setNewQ(p => ({ ...p, label: e.target.value }))}
+                  placeholder="¿Cómo te sientes con tu dieta?" />
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B8470] mb-2">Tipo de respuesta</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { v: "yesno",  label: "Sí / No" },
+                    { v: "scale",  label: "Escala 1–10" },
+                    { v: "number", label: "Número" },
+                    { v: "text",   label: "Texto libre" },
+                  ].map(opt => (
+                    <button key={opt.v} onClick={() => setNewQ(p => ({ ...p, type: opt.v }))}
+                      className={`py-2.5 rounded-xl border text-[12px] font-medium transition ${
+                        newQ.type === opt.v ? "bg-[#1F2A24] text-[#F2ECDF] border-[#1F2A24]" : "bg-white border-[#E8DEC3] text-[#3F3A2E]"
+                      }`}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                disabled={!newQ.label.trim()}
+                onClick={addCustomQuestion}
+                className={`w-full h-12 rounded-xl font-semibold text-[14px] transition ${
+                  newQ.label.trim() ? "bg-[#3E5A4A] text-white" : "bg-[#E8E0CF] text-[#B0A890]"
+                }`}>
+                Agregar pregunta
+              </button>
+            </div>
+          )}
+
+          <div className="rounded-xl bg-[#F5ECDB] border border-[#E3D5B3] p-3 flex gap-2 items-start">
+            <Info size={14} className="text-[#8B6F3A] mt-0.5 flex-shrink-0" />
+            <p className="text-[11px] text-[#6B5A2E] leading-relaxed">
+              Las preguntas base no se pueden eliminar. Tus preguntas personalizadas se guardan en tu perfil y aparecen en cada entrada del diario.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // BOTTOM NAV
 // ============================================================
 function BottomNav({ tab, setTab }) {
@@ -3986,6 +4359,7 @@ function BottomNav({ tab, setTab }) {
     { v: "home",        label: "Inicio",    Icon: Home },
     { v: "progress",    label: "Progreso",  Icon: BarChart3 },
     { v: "workouts",    label: "Actividad", Icon: Dumbbell },
+    { v: "journal",     label: "Diario",    Icon: FileText },
     { v: "communities", label: "Social",    Icon: Users },
     { v: "telehealth",  label: "Doctores",  Icon: Stethoscope },
     { v: "profile",     label: "Perfil",    Icon: User },
@@ -4207,6 +4581,8 @@ function WellvaraApp({ user }) {
         if (data.providers) setProviders(data.providers);
         if (data.workouts) setWorkouts(data.workouts);
         if (data.wearables) setWearables(data.wearables);
+        if (data.journals) setJournals(data.journals);
+        if (data.journalQuestions) setJournalQuestions(data.journalQuestions);
       }
     });
   }, [user]);
@@ -4276,9 +4652,11 @@ function WellvaraApp({ user }) {
 
   const [workouts, setWorkouts] = useState([]);
   const [wearables, setWearables] = useState({});
+  const [journals, setJournals] = useState([]);
+  const [journalQuestions, setJournalQuestions] = useState([]);
 
   const logWorkout = useCallback((w) => {
-    const entry = { ...w, id: Date.now(), date: new Date().toISOString().slice(0, 10), source: "manual" };
+    const entry = { ...w, id: Date.now(), date: w.date || new Date().toISOString().slice(0, 10), source: "manual" };
     setWorkouts(prev => {
       const next = [entry, ...prev];
       saveToFirestore({ workouts: next });
@@ -4292,6 +4670,22 @@ function WellvaraApp({ user }) {
       saveToFirestore({ wearables: next });
       return next;
     });
+  }, [saveToFirestore]);
+
+  const logJournal = useCallback((entry) => {
+    setJournals(prev => {
+      const idx = prev.findIndex(j => j.date === entry.date);
+      const next = idx >= 0
+        ? prev.map((j, i) => i === idx ? { ...j, entries: { ...j.entries, ...entry.entries } } : j)
+        : [{ ...entry, id: Date.now() }, ...prev];
+      saveToFirestore({ journals: next });
+      return next;
+    });
+  }, [saveToFirestore]);
+
+  const saveJournalQuestions = useCallback((questions) => {
+    setJournalQuestions(questions);
+    saveToFirestore({ journalQuestions: questions });
   }, [saveToFirestore]);
 
   const handleNav = (target, payload) => {
@@ -4361,6 +4755,10 @@ function WellvaraApp({ user }) {
               tab={tab}
               setTab={setTab}
               onLogout={() => signOut(auth)}
+              journals={journals}
+              journalQuestions={journalQuestions}
+              logJournal={logJournal}
+              saveJournalQuestions={saveJournalQuestions}
             />
             {showBottomNav && <BottomNav tab={tab} setTab={setTab} />}
           </>
