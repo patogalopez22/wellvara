@@ -4,6 +4,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signOut,
 } from "firebase/auth";
 import { doc, setDoc, getDoc } from "firebase/firestore";
@@ -4393,10 +4394,11 @@ function AuthScreen({ onAuth }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
-    setError("");
+    setError(""); setInfo("");
     setLoading(true);
     try {
       if (mode === "signup") {
@@ -4417,6 +4419,20 @@ function AuthScreen({ onAuth }) {
         "auth/invalid-credential": "Correo o contraseña incorrectos.",
       };
       setError(msgs[e.code] || "Algo salió mal. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setError(""); setInfo("");
+    if (!email.trim()) { setError("Escribe tu correo primero."); return; }
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setInfo("Revisa tu correo — te enviamos un enlace para restablecer tu contraseña.");
+    } catch (e) {
+      setError("No encontramos una cuenta con ese correo.");
     } finally {
       setLoading(false);
     }
@@ -4464,6 +4480,7 @@ function AuthScreen({ onAuth }) {
           className="w-full border border-[#D8CEB8] rounded-2xl px-4 py-3.5 text-[15px] bg-white outline-none focus:border-[#3E5A4A] transition-colors"
         />
         {error && <p className="text-[12px] text-[#E57373] text-center">{error}</p>}
+        {info && <p className="text-[12px] text-[#3E5A4A] text-center">{info}</p>}
         <button
           onClick={submit}
           disabled={loading || !email || !password}
@@ -4471,6 +4488,15 @@ function AuthScreen({ onAuth }) {
         >
           {loading ? "..." : mode === "login" ? "Entrar" : "Crear cuenta"}
         </button>
+        {mode === "login" && (
+          <button
+            onClick={handleForgotPassword}
+            disabled={loading}
+            className="w-full text-center text-[13px] text-[#8B8470] underline underline-offset-2 pt-1"
+          >
+            ¿Olvidaste tu contraseña?
+          </button>
+        )}
       </div>
     </div>
   );
