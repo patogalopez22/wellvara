@@ -4784,7 +4784,7 @@ export default function Wellvara() {
 }
 
 function WellvaraApp({ user }) {
-  const [screen, setScreen] = useState("welcome");
+  const [screen, setScreen] = useState("loading");
   const [answers, setAnswers] = useState({});
   const [tab, setTab] = useState("home");
   const [currentDoctor, setCurrentDoctor] = useState(null);
@@ -4798,20 +4798,23 @@ function WellvaraApp({ user }) {
     getDoc(doc(db, "users", user.uid)).then(snap => {
       if (snap.exists()) {
         const data = snap.data();
-        if (data.answers) { setAnswers(data.answers); setScreen("dashboard"); }
         if (data.doseLogs) setDoseLogs(data.doseLogs);
         if (data.providers) setProviders(data.providers);
         if (data.workouts) setWorkouts(data.workouts);
         if (data.wearables) setWearables(data.wearables);
         if (data.journals) setJournals(data.journals);
         if (data.journalQuestions) setJournalQuestions(data.journalQuestions);
+        if (data.answers) { setAnswers(data.answers); setScreen("dashboard"); }
+        else setScreen("welcome");
+      } else {
+        setScreen("welcome");
       }
-    });
+    }).catch(() => setScreen("welcome"));
   }, [user]);
 
   const saveToFirestore = useCallback((updates) => {
     if (!user) return;
-    setDoc(doc(db, "users", user.uid), updates, { merge: true });
+    setDoc(doc(db, "users", user.uid), updates, { merge: true }).catch(console.error);
   }, [user]);
 
   const stack = useMemo(() => generateStack(answers), [answers]);
@@ -4938,6 +4941,19 @@ function WellvaraApp({ user }) {
     <>
       <style>{FONTS_CSS}</style>
       <Shell>
+        {screen === "loading" && (
+          <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#3E5A4A] to-[#1F2A24] flex items-center justify-center shadow-lg">
+              <Leaf size={22} className="text-[#D7C9A7]" strokeWidth={1.5} />
+            </div>
+            <div className="flex gap-1.5">
+              {[0,1,2].map(i => (
+                <div key={i} className="w-1.5 h-1.5 rounded-full bg-[#3E5A4A] animate-gentle"
+                  style={{ animationDelay: `${i * 0.2}s` }} />
+              ))}
+            </div>
+          </div>
+        )}
         {screen === "welcome" && (
           <WelcomeScreen
             onStart={() => setScreen("questionnaire")}
