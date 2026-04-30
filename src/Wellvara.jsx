@@ -4006,6 +4006,69 @@ const DEFAULT_JOURNAL_QUESTIONS = [
   { id: "workout_intensity",label: "Intensidad de entrenamiento",   type: "intensity", Icon: Dumbbell },
 ];
 
+function computeInsights(journals, allQuestions) {
+  if (journals.length < 7) return null;
+  const sorted = [...journals].sort((a, b) => a.date.localeCompare(b.date));
+
+  // Consecutive day pairs: what happened day N → feel on day N+1
+  const pairs = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const curr = sorted[i];
+    const nxt = sorted[i + 1];
+    const diff = (new Date(nxt.date + "T12:00:00") - new Date(curr.date + "T12:00:00")) / 86400000;
+    if (diff === 1 && nxt.entries?.feel != null) {
+      pairs.push({ prev: curr.entries || {}, nextFeel: nxt.entries.feel });
+    }
+  }
+
+  // Same-day entries that have a feel score
+  const withFeel = sorted.filter(j => j.entries?.feel != null);
+
+  // Use next-day pairs when available (>=3), otherwise fall back to same-day
+  const src = pairs.length >= 3
+    ? { data: pairs, isNextDay: true }
+    : { data: withFeel.map(j => ({ prev: j.entries || {}, nextFeel: j.entries.feel })), isNextDay: false };
+
+  const avg = arr => +(arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1);
+  const insights = [];
+
+  // yesno questions
+  allQuestions.filter(q => q.type === "yesno").forEach(q => {
+    const yes = src.data.filter(p => p.prev[q.id] === true).map(p => p.nextFeel);
+    const no  = src.data.filter(p => p.prev[q.id] === false).map(p => p.nextFeel);
+    if (yes.length >= 2 && no.length >= 2) {
+      const yesAvg = avg(yes), noAvg = avg(no);
+      insights.push({ type: "yesno", question: q, yesAvg, noAvg, diff: +(yesAvg - noAvg).toFixed(1), isNextDay: src.isNextDay });
+    }
+  });
+
+  // workout intensity → next-day feel
+  const intSrc = pairs.length >= 2 ? pairs : src.data;
+  const INTENSITY_LABELS = { none: "Ninguno", low: "Bajo", medium: "Medio", high: "Alto" };
+  const intensityBuckets = {};
+  ["none","low","medium","high"].forEach(v => {
+    const feels = intSrc.filter(p => p.prev.workout_intensity === v).map(p => p.nextFeel);
+    if (feels.length >= 1) intensityBuckets[v] = { label: INTENSITY_LABELS[v], avg: avg(feels), count: feels.length };
+  });
+  if (Object.keys(intensityBuckets).length >= 2) {
+    insights.push({ type: "intensity", question: allQuestions.find(q => q.id === "workout_intensity"), data: intensityBuckets });
+  }
+
+  // sleep hours → same-day feel (buckets)
+  const sleepPts = withFeel.filter(j => j.entries?.sleep_hours != null)
+    .map(j => ({ hrs: Number(j.entries.sleep_hours), feel: j.entries.feel }));
+  if (sleepPts.length >= 3) {
+    const buckets = [
+      { label: "< 6h", pts: sleepPts.filter(d => d.hrs < 6) },
+      { label: "6–8h", pts: sleepPts.filter(d => d.hrs >= 6 && d.hrs <= 8) },
+      { label: "> 8h", pts: sleepPts.filter(d => d.hrs > 8) },
+    ].filter(b => b.pts.length >= 1).map(b => ({ label: b.label, avg: avg(b.pts.map(p => p.feel)), count: b.pts.length }));
+    if (buckets.length >= 2) insights.push({ type: "sleep_hours", question: allQuestions.find(q => q.id === "sleep_hours"), buckets });
+  }
+
+  return insights.sort((a, b) => Math.abs(b.diff ?? 0) - Math.abs(a.diff ?? 0));
+}
+
 function JournalView({ journals, journalQuestions, logJournal, saveJournalQuestions }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const [subtab, setSubtab] = useState("log");
@@ -4047,6 +4110,7 @@ function JournalView({ journals, journalQuestions, logJournal, saveJournalQuesti
   };
 
   const TYPE_LABELS = { scale: "Escala", yesno: "Sí/No", intensity: "Intensidad", number: "Número", text: "Texto" };
+  const insights = useMemo(() => computeInsights(journals, allQuestions), [journals, allQuestions]);
 
   const renderQuestion = (q) => {
     const val = answers[q.id];
@@ -4127,6 +4191,7 @@ function JournalView({ journals, journalQuestions, logJournal, saveJournalQuesti
   const subtabs = [
     { v: "log",       label: "Registrar" },
     { v: "history",   label: "Historial" },
+    { v: "patrones",  label: journals.length < 7 ? `Patrones (${journals.length}/7)` : "Patrones" },
     { v: "questions", label: "Preguntas" },
   ];
 
@@ -4244,6 +4309,137 @@ function JournalView({ journals, journalQuestions, logJournal, saveJournalQuesti
                 );
               })
           )}
+        </div>
+      )}
+
+      {/* ── PATRONES ─────────────────────── */}
+      {subtab === "patrones" && (
+        <div className="px-6 space-y-4">
+          {journals.length < 7 ? (
+            <div className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-6 text-center space-y-3">
+              <div className="font-display text-[20px] tracking-tight text-[#1F2A24]">
+                {journals.length} de 7 entradas
+              </div>
+              <div className="w-full h-2 bg-[#E8DEC3] rounded-full overflow-hidden">
+                <div className="h-full bg-[#3E5A4A] rounded-full transition-all"
+                  style={{ width: `${(journals.length / 7) * 100}%` }} />
+              </div>
+              <p className="text-[13px] text-[#8B8470] leading-relaxed">
+                Con 7 entradas empezamos a detectar qué hábitos mejoran o afectan tu bienestar al día siguiente.
+              </p>
+            </div>
+          ) : insights && insights.length === 0 ? (
+            <div className="text-center py-10 text-[13px] text-[#8B8470]">
+              Necesitas responder más preguntas con "Sí" y "No" para generar patrones.
+            </div>
+          ) : insights ? (
+            <>
+              <div className="rounded-xl bg-[#F5ECDB] border border-[#E3D5B3] p-3 flex gap-2 items-start">
+                <Info size={14} className="text-[#8B6F3A] mt-0.5 flex-shrink-0" />
+                <p className="text-[11px] text-[#6B5A2E] leading-relaxed">
+                  {insights[0]?.isNextDay
+                    ? "Basado en cómo te sentiste al día siguiente de cada hábito."
+                    : "Basado en correlaciones del mismo día (aún no hay suficientes días consecutivos)."}
+                </p>
+              </div>
+
+              {insights.map((ins, idx) => {
+                const Icon = ins.question?.Icon || CircleDot;
+
+                if (ins.type === "yesno") {
+                  const positive = ins.diff > 0; // Yes is better
+                  const strongEffect = Math.abs(ins.diff) >= 1.5;
+                  return (
+                    <div key={idx} className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-4 space-y-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-[#E8DEC3] flex items-center justify-center flex-shrink-0">
+                          <Icon size={14} strokeWidth={1.8} className="text-[#3E5A4A]" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium text-[13px] text-[#1F2A24] leading-tight">{ins.question.label}</div>
+                          <div className="text-[10.5px] text-[#8B8470] mt-0.5">
+                            {strongEffect ? (ins.diff > 0 ? "Impacto positivo" : "Impacto negativo") : "Efecto leve"}
+                          </div>
+                        </div>
+                        <div className={`text-[13px] font-bold px-2.5 py-1 rounded-full ${
+                          ins.diff > 0 ? "bg-[#E4EADF] text-[#3E5A4A]" : "bg-[#F2DBCE] text-[#8B4A2B]"
+                        }`}>
+                          {ins.diff > 0 ? "+" : ""}{ins.diff} pts
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className={`rounded-xl p-3 text-center border ${positive ? "bg-[#E4EADF] border-[#3E5A4A]/20" : "bg-white border-[#E8DEC3]"}`}>
+                          <div className="font-display text-[20px] tabular-nums text-[#1F2A24]">{ins.yesAvg}<span className="text-[12px] text-[#8B8470]">/10</span></div>
+                          <div className="text-[11px] text-[#8B8470] mt-0.5">Cuando Sí</div>
+                        </div>
+                        <div className={`rounded-xl p-3 text-center border ${!positive ? "bg-[#E4EADF] border-[#3E5A4A]/20" : "bg-white border-[#E8DEC3]"}`}>
+                          <div className="font-display text-[20px] tabular-nums text-[#1F2A24]">{ins.noAvg}<span className="text-[12px] text-[#8B8470]">/10</span></div>
+                          <div className="text-[11px] text-[#8B8470] mt-0.5">Cuando No</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (ins.type === "intensity") {
+                  const levels = Object.values(ins.data);
+                  const maxAvg = Math.max(...levels.map(l => l.avg));
+                  return (
+                    <div key={idx} className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-4 space-y-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-[#E8DEC3] flex items-center justify-center flex-shrink-0">
+                          <Icon size={14} strokeWidth={1.8} className="text-[#3E5A4A]" />
+                        </div>
+                        <div className="font-medium text-[13px] text-[#1F2A24]">{ins.question.label}</div>
+                      </div>
+                      <div className="space-y-2">
+                        {levels.map(lv => (
+                          <div key={lv.label} className="flex items-center gap-3">
+                            <div className="w-16 text-[12px] text-[#6B6657] text-right shrink-0">{lv.label}</div>
+                            <div className="flex-1 h-7 bg-[#E8DEC3] rounded-lg overflow-hidden">
+                              <div className="h-full bg-[#C0633F] rounded-lg flex items-center justify-end pr-2 transition-all"
+                                style={{ width: `${(lv.avg / maxAvg) * 100}%` }}>
+                                <span className="text-[11px] font-semibold text-white">{lv.avg}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (ins.type === "sleep_hours") {
+                  const maxAvg = Math.max(...ins.buckets.map(b => b.avg));
+                  return (
+                    <div key={idx} className="rounded-2xl bg-[#FBF7EC] border border-[#E8DEC3] p-4 space-y-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-[#E8DEC3] flex items-center justify-center flex-shrink-0">
+                          <Icon size={14} strokeWidth={1.8} className="text-[#3E5A4A]" />
+                        </div>
+                        <div className="font-medium text-[13px] text-[#1F2A24]">{ins.question.label}</div>
+                      </div>
+                      <div className="space-y-2">
+                        {ins.buckets.map(b => (
+                          <div key={b.label} className="flex items-center gap-3">
+                            <div className="w-12 text-[12px] text-[#6B6657] text-right shrink-0">{b.label}</div>
+                            <div className="flex-1 h-7 bg-[#E8DEC3] rounded-lg overflow-hidden">
+                              <div className="h-full bg-[#3E5A4A] rounded-lg flex items-center justify-end pr-2 transition-all"
+                                style={{ width: `${(b.avg / maxAvg) * 100}%` }}>
+                                <span className="text-[11px] font-semibold text-white">{b.avg}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+
+                return null;
+              })}
+            </>
+          ) : null}
         </div>
       )}
 
