@@ -4821,14 +4821,14 @@ function WellvaraApp({ user }) {
         if (data.journalQuestions) setJournalQuestions(data.journalQuestions);
         const resolved = data.answers || localAnswers;
         if (resolved) { setAnswers(resolved); setScreen("dashboard"); }
-        else setScreen("welcome");
+        else setScreen("questionnaire");
       } else {
         if (localAnswers) { setAnswers(localAnswers); setScreen("dashboard"); }
-        else setScreen("welcome");
+        else setScreen("questionnaire");
       }
     }).catch(() => {
       if (localAnswers) { setAnswers(localAnswers); setScreen("dashboard"); }
-      else setScreen("welcome");
+      else setScreen("questionnaire");
     });
   }, [uid]);
 
