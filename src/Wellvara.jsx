@@ -459,7 +459,7 @@ const SectionTitle = ({ eyebrow, title, sub }) => (
 // ============================================================
 // SCREENS: WELCOME
 // ============================================================
-function WelcomeScreen({ onStart, onOpenPrivacy }) {
+function WelcomeScreen({ onStart, onOpenPrivacy, onSkipToDashboard }) {
   return (
     <div className="relative min-h-screen flex flex-col">
       {/* Hero */}
@@ -531,6 +531,14 @@ function WelcomeScreen({ onStart, onOpenPrivacy }) {
           Empezar mi evaluación
           <ArrowRight size={18} strokeWidth={2} />
         </button>
+        {onSkipToDashboard && (
+          <button
+            onClick={onSkipToDashboard}
+            className="w-full mt-2 text-[13px] text-[#3E5A4A] font-medium underline underline-offset-4"
+          >
+            Ya completé mi evaluación → Ir al inicio
+          </button>
+        )}
         <button
           onClick={onOpenPrivacy}
           className="w-full mt-3 text-[12px] text-[#6B6657] underline underline-offset-4 decoration-[#C7BFA7]"
@@ -4626,9 +4634,14 @@ function AuthScreen({ onAuth }) {
     setLoading(true);
     try {
       await sendPasswordResetEmail(auth, email.trim());
-      setInfo("Revisa tu correo — te enviamos un enlace para restablecer tu contraseña.");
+      setInfo("Enviamos el enlace a " + email.trim() + ". Revisa también tu carpeta de spam o correo no deseado.");
     } catch (e) {
-      setError("No encontramos una cuenta con ese correo.");
+      const msgs = {
+        "auth/user-not-found": "No encontramos una cuenta con ese correo.",
+        "auth/invalid-email": "Correo inválido.",
+        "auth/too-many-requests": "Demasiados intentos. Espera unos minutos e intenta de nuevo.",
+      };
+      setError(msgs[e.code] || "Error al enviar el correo (" + e.code + "). Intenta de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -4784,6 +4797,7 @@ export default function Wellvara() {
 }
 
 function WellvaraApp({ user }) {
+  const uid = user.uid;
   const [screen, setScreen] = useState("loading");
   const [answers, setAnswers] = useState({});
   const [tab, setTab] = useState("home");
@@ -4794,8 +4808,9 @@ function WellvaraApp({ user }) {
   const [currentProvider, setCurrentProvider] = useState(null);
 
   useEffect(() => {
-    if (!user) return;
-    getDoc(doc(db, "users", user.uid)).then(snap => {
+    const lsKey = `wv_answers_${uid}`;
+    const localAnswers = (() => { try { const r = localStorage.getItem(lsKey); return r ? JSON.parse(r) : null; } catch { return null; } })();
+    getDoc(doc(db, "users", uid)).then(snap => {
       if (snap.exists()) {
         const data = snap.data();
         if (data.doseLogs) setDoseLogs(data.doseLogs);
@@ -4804,18 +4819,25 @@ function WellvaraApp({ user }) {
         if (data.wearables) setWearables(data.wearables);
         if (data.journals) setJournals(data.journals);
         if (data.journalQuestions) setJournalQuestions(data.journalQuestions);
-        if (data.answers) { setAnswers(data.answers); setScreen("dashboard"); }
+        const resolved = data.answers || localAnswers;
+        if (resolved) { setAnswers(resolved); setScreen("dashboard"); }
         else setScreen("welcome");
       } else {
-        setScreen("welcome");
+        if (localAnswers) { setAnswers(localAnswers); setScreen("dashboard"); }
+        else setScreen("welcome");
       }
-    }).catch(() => setScreen("welcome"));
-  }, [user]);
+    }).catch(() => {
+      if (localAnswers) { setAnswers(localAnswers); setScreen("dashboard"); }
+      else setScreen("welcome");
+    });
+  }, [uid]);
 
   const saveToFirestore = useCallback((updates) => {
-    if (!user) return;
-    setDoc(doc(db, "users", user.uid), updates, { merge: true }).catch(console.error);
-  }, [user]);
+    if (updates.answers) {
+      try { localStorage.setItem(`wv_answers_${uid}`, JSON.stringify(updates.answers)); } catch {}
+    }
+    setDoc(doc(db, "users", uid), updates, { merge: true }).catch(console.error);
+  }, [uid]);
 
   const stack = useMemo(() => generateStack(answers), [answers]);
 
@@ -4958,6 +4980,7 @@ function WellvaraApp({ user }) {
           <WelcomeScreen
             onStart={() => setScreen("questionnaire")}
             onOpenPrivacy={() => setScreen("privacy")}
+            onSkipToDashboard={() => { setScreen("dashboard"); setTab("home"); }}
           />
         )}
 
