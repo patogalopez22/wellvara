@@ -594,8 +594,9 @@ function Questionnaire({ onComplete, onExit }) {
               />
             </div>
           </div>
-          <div className="text-[11px] tabular-nums text-[#6B6657] font-medium">
-            {idx + 1}/{QUESTIONS.length}
+          <div className="text-[11px] tabular-nums text-[#6B6657] font-medium text-right leading-tight">
+            {idx + 1}/{QUESTIONS.length}<br/>
+            <span className="text-[10px] text-[#3E5A4A]">Solo una vez</span>
           </div>
         </div>
       </div>
