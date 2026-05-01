@@ -7,7 +7,7 @@ import {
   sendPasswordResetEmail,
   signOut,
 } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).href;
 import {
@@ -3222,13 +3222,9 @@ async function parsePDFFile(file) {
   return fullText;
 }
 
-function LabsScreen({ onBack }) {
-  const [isPro, setIsPro] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("wv_labs_pro") || "false"); } catch { return false; }
-  });
-  const [labValues, setLabValues] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("wv_lab_values") || "{}"); } catch { return {}; }
-  });
+function LabsScreen({ onBack, initialLabValues = {}, initialLabsPro = false, onSaveLabValues, onSetLabsPro }) {
+  const [isPro, setIsPro] = useState(initialLabsPro);
+  const [labValues, setLabValues] = useState(initialLabValues);
   const [activeCategory, setActiveCategory] = useState("metabolic");
   const [selectedBm, setSelectedBm] = useState(null);
   const [editVal, setEditVal] = useState("");
@@ -3242,6 +3238,7 @@ function LabsScreen({ onBack }) {
     const next = { ...labValues, [key]: val };
     setLabValues(next);
     localStorage.setItem("wv_lab_values", JSON.stringify(next));
+    onSaveLabValues?.(next);
   };
 
   const handleFileUpload = async (e) => {
@@ -3277,6 +3274,7 @@ function LabsScreen({ onBack }) {
     const merged = { ...labValues, ...parsedValues };
     setLabValues(merged);
     localStorage.setItem("wv_lab_values", JSON.stringify(merged));
+    onSaveLabValues?.(merged);
     setParseState("idle");
     setParsedValues({});
   };
@@ -3566,6 +3564,7 @@ function LabsScreen({ onBack }) {
               onClick={() => {
                 setIsPro(true);
                 localStorage.setItem("wv_labs_pro", "true");
+                onSetLabsPro?.(true);
                 setShowPaywall(false);
               }}
               className="mt-6 w-full h-12 rounded-2xl bg-gradient-to-r from-[#1F2A24] to-[#3E5A4A] text-[#D7C9A7] font-semibold text-[14px]"
@@ -4817,7 +4816,10 @@ function WellvaraApp({ user }) {
   const [doseLogs, setDoseLogs] = useState([]);
   const [providers, setProviders] = useState([]);
   const [currentProvider, setCurrentProvider] = useState(null);
+  const [labValues, setLabValues] = useState({});
+  const [labsPro, setLabsPro] = useState(false);
 
+  // Load user-specific data from Firestore
   useEffect(() => {
     const lsKey = `wv_answers_${uid}`;
     const localAnswers = (() => { try { const r = localStorage.getItem(lsKey); return r ? JSON.parse(r) : null; } catch { return null; } })();
@@ -4825,11 +4827,12 @@ function WellvaraApp({ user }) {
       if (snap.exists()) {
         const data = snap.data();
         if (data.doseLogs) setDoseLogs(data.doseLogs);
-        if (data.providers) setProviders(data.providers);
         if (data.workouts) setWorkouts(data.workouts);
         if (data.wearables) setWearables(data.wearables);
         if (data.journals) setJournals(data.journals);
         if (data.journalQuestions) setJournalQuestions(data.journalQuestions);
+        if (data.labValues) setLabValues(data.labValues);
+        if (data.labsPro) setLabsPro(data.labsPro);
         const resolved = data.answers || localAnswers;
         if (resolved) { setAnswers(resolved); setScreen("dashboard"); }
         else setScreen("questionnaire");
@@ -4843,11 +4846,30 @@ function WellvaraApp({ user }) {
     });
   }, [uid]);
 
+  // Load global providers collection (shared across all users)
+  useEffect(() => {
+    getDocs(collection(db, "providers")).then(snap => {
+      setProviders(snap.docs.map(d => d.data()));
+    }).catch(console.error);
+  }, []);
+
   const saveToFirestore = useCallback((updates) => {
     if (updates.answers) {
       try { localStorage.setItem(`wv_answers_${uid}`, JSON.stringify(updates.answers)); } catch {}
     }
     setDoc(doc(db, "users", uid), updates, { merge: true }).catch(console.error);
+  }, [uid]);
+
+  const saveLabValues = useCallback((vals) => {
+    setLabValues(vals);
+    try { localStorage.setItem("wv_lab_values", JSON.stringify(vals)); } catch {}
+    setDoc(doc(db, "users", uid), { labValues: vals }, { merge: true }).catch(console.error);
+  }, [uid]);
+
+  const saveLabsPro = useCallback((val) => {
+    setLabsPro(val);
+    try { localStorage.setItem("wv_labs_pro", JSON.stringify(val)); } catch {}
+    setDoc(doc(db, "users", uid), { labsPro: val }, { merge: true }).catch(console.error);
   }, [uid]);
 
   const stack = useMemo(() => generateStack(answers), [answers]);
@@ -4861,6 +4883,10 @@ function WellvaraApp({ user }) {
       return next;
     });
   }, [saveToFirestore]);
+
+  const saveProviderGlobal = useCallback((provider) => {
+    setDoc(doc(db, "providers", String(provider.id)), provider).catch(console.error);
+  }, []);
 
   const registerProvider = useCallback((formData) => {
     const id = Date.now();
@@ -4876,37 +4902,37 @@ function WellvaraApp({ user }) {
       reviews: 0,
       languages: formData.languages.split(",").map(l => l.trim()),
     };
-    setProviders(prev => {
-      const next = [...prev, provider];
-      saveToFirestore({ providers: next });
-      return next;
-    });
+    setProviders(prev => [...prev, provider]);
+    saveProviderGlobal(provider);
     setCurrentProvider(provider);
-  }, [saveToFirestore]);
+  }, [saveProviderGlobal]);
 
   const approveProvider = useCallback((id) => {
     setProviders(prev => {
       const next = prev.map(p => p.id === id ? { ...p, status: "approved" } : p);
-      saveToFirestore({ providers: next });
+      const updated = next.find(p => p.id === id);
+      if (updated) saveProviderGlobal(updated);
       return next;
     });
-  }, [saveToFirestore]);
+  }, [saveProviderGlobal]);
 
   const rejectProvider = useCallback((id) => {
     setProviders(prev => {
       const next = prev.map(p => p.id === id ? { ...p, status: "rejected" } : p);
-      saveToFirestore({ providers: next });
+      const updated = next.find(p => p.id === id);
+      if (updated) saveProviderGlobal(updated);
       return next;
     });
-  }, [saveToFirestore]);
+  }, [saveProviderGlobal]);
 
   const updateProviderAvailability = useCallback((providerId, availability) => {
     setProviders(prev => {
       const next = prev.map(p => p.id === providerId ? { ...p, availability } : p);
-      saveToFirestore({ providers: next });
+      const updated = next.find(p => p.id === providerId);
+      if (updated) saveProviderGlobal(updated);
       return next;
     });
-  }, [saveToFirestore]);
+  }, [saveProviderGlobal]);
 
   const [workouts, setWorkouts] = useState([]);
   const [wearables, setWearables] = useState({});
@@ -5083,7 +5109,13 @@ function WellvaraApp({ user }) {
         )}
 
         {screen === "labs" && (
-          <LabsScreen onBack={() => setScreen("dashboard")} />
+          <LabsScreen
+            onBack={() => setScreen("dashboard")}
+            initialLabValues={labValues}
+            initialLabsPro={labsPro}
+            onSaveLabValues={saveLabValues}
+            onSetLabsPro={saveLabsPro}
+          />
         )}
       </Shell>
     </>
