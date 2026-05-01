@@ -4784,6 +4784,7 @@ export default function Wellvara() {
     localStorage.getItem("wv_beta_unlocked") === "true"
   );
   const [user, setUser] = useState(undefined);
+  const [preAuth, setPreAuth] = useState("welcome"); // "welcome" | "auth" | "privacy"
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u ?? null));
@@ -4792,8 +4793,17 @@ export default function Wellvara() {
 
   if (!unlocked) return <BetaGate onUnlock={() => setUnlocked(true)} />;
   if (user === undefined) return null;
-  if (!user) return <AuthScreen onAuth={setUser} />;
-  return <WellvaraApp user={user} />;
+  if (user) return <WellvaraApp user={user} />;
+
+  // Not logged in — public screens
+  if (preAuth === "privacy") return <PrivacyScreen onBack={() => setPreAuth("welcome")} />;
+  if (preAuth === "auth") return <AuthScreen onAuth={setUser} />;
+  return (
+    <WelcomeScreen
+      onStart={() => setPreAuth("auth")}
+      onOpenPrivacy={() => setPreAuth("privacy")}
+    />
+  );
 }
 
 function WellvaraApp({ user }) {
@@ -4976,17 +4986,9 @@ function WellvaraApp({ user }) {
             </div>
           </div>
         )}
-        {screen === "welcome" && (
-          <WelcomeScreen
-            onStart={() => setScreen("questionnaire")}
-            onOpenPrivacy={() => setScreen("privacy")}
-            onSkipToDashboard={() => { setScreen("dashboard"); setTab("home"); }}
-          />
-        )}
-
         {screen === "questionnaire" && (
           <Questionnaire
-            onExit={() => setScreen("welcome")}
+            onExit={() => signOut(auth)}
             onComplete={(a) => { setAnswers(a); saveToFirestore({ answers: a }); setScreen("results"); }}
           />
         )}
